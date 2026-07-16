@@ -1,7 +1,7 @@
 using IISStateAgent.Configuration;
 using IISStateAgent.Models;
 using IISStateAgent.Services;
-using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.AspNetCore.Server.IIS;
 using Microsoft.Extensions.Caching.Memory;
 using Serilog;
 
@@ -26,7 +26,11 @@ try
     var isWindowsAuth = settings.AuthenticationMode.Equals("Windows", StringComparison.OrdinalIgnoreCase);
     if (isWindowsAuth)
     {
-        builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+        // Hosted in-process (see web.config hostingModel="inprocess"), so IIS performs
+        // Windows Authentication itself. Defer to it via IISServerDefaults rather than
+        // the Negotiate middleware, which only supports out-of-process hosting and
+        // throws at startup if IIS-level Windows Authentication is enabled.
+        builder.Services.AddAuthentication(IISServerDefaults.AuthenticationScheme);
         builder.Services.AddAuthorization();
     }
 
@@ -45,6 +49,9 @@ try
         app.UseAuthentication();
         app.UseAuthorization();
     }
+
+    // Root has no content of its own — redirect probes/browsers hitting "/" to /health
+    app.MapGet("/", () => Results.Redirect("/health")).AllowAnonymous();
 
     // /health is always anonymous — monitoring tools and load balancers need it credential-free
     app.MapGet("/health", (IMemoryCache cache, AgentSettings agentSettings) =>
